@@ -574,7 +574,7 @@ function displayName(raw) {
     const [last, rest] = text.split(/,(.+)/)
     if (rest) text = `${rest.trim()} ${last.trim()}`
   }
-  text = text.replace(/"+/g, '')
+  text = text.replace(/\\+"/g, '"')
   if (text === text.toUpperCase()) {
     text = text.toLowerCase().replace(/\b([a-z])/g, (letter) => letter.toUpperCase())
     text = text.replace(/\b(Ii|Iii|Iv)\b/g, (part) => part.toUpperCase())

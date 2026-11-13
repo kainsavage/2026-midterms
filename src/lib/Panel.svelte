@@ -1,7 +1,7 @@
 <script>
   import { formatMargin, formatShift, formatVotes, formatWhen, partyLabel, statusLabel } from './format.js'
 
-  let { selection, onClose, onDeselect, onSelectDistrict } = $props()
+  let { selection, office = 'house', election, onClose, onDeselect, onSelectDistrict } = $props()
 
   const place = $derived(selection?.place ?? null)
   const state = $derived(selection?.type === 'district' ? selection.state : selection?.place)
@@ -14,6 +14,8 @@
         : 'Governor',
   )
   const priorHouse = $derived(selection?.type === 'house-state' ? tallyPriorHouse(selection.districts) : null)
+  const nation = $derived(summarizeNation(election, office))
+  const nationLabel = $derived(office === 'senate' ? 'Senate' : office === 'governor' ? 'Governor' : 'House')
 
   function tallyPriorHouse(districts) {
     const seats = { dem: 0, rep: 0, other: 0, missing: 0, uncontested: 0, flips: 0, demVotes: 0, repVotes: 0, otherVotes: 0, totalVotes: 0 }
@@ -44,14 +46,235 @@
     return shift.replace('than 2024', `than ${baseline}`)
   }
 
+  function seatLine(seats, includeNoRace) {
+    const parts = [`${seats.dem} Democratic`, `${seats.rep} Republican`]
+    if (seats.other) parts.push(`${seats.other} other`)
+    if (seats.uncalled) parts.push(`${seats.uncalled} not called`)
+    if (includeNoRace && seats.noRace) parts.push(`${seats.noRace} no race`)
+    return parts.join(' · ')
+  }
+
   function share(part, total) {
     if (!total) return '0%'
     return `${Math.round((part / total) * 1000) / 10}%`
   }
+
+  function round1(value) {
+    return Math.round(value * 10) / 10
+  }
+
+  function summarizeNation(data, whichOffice) {
+    const states = Object.values(data.states)
+    const linesChanged = states.filter((item) => item.linesChanged).length
+    const president = sumPresident(states)
+
+    if (whichOffice === 'house') {
+      const seats = { dem: 0, rep: 0, other: 0, uncalled: 0 }
+      const votes = { dem: 0, rep: 0, other: 0, total: 0 }
+      for (const item of states) {
+        seats.dem += item.houseSeats?.dem ?? 0
+        seats.rep += item.houseSeats?.rep ?? 0
+        seats.other += item.houseSeats?.other ?? 0
+        seats.uncalled += item.houseSeats?.uncalled ?? 0
+        votes.dem += item.houseVotes?.dem ?? 0
+        votes.rep += item.houseVotes?.rep ?? 0
+        votes.other += item.houseVotes?.other ?? 0
+        votes.total += item.houseVotes?.total ?? 0
+      }
+      votes.demMargin = votes.total > 0 ? round1(((votes.dem - votes.rep) / votes.total) * 100) : null
+      const prior = tallyPriorHouse(Object.values(data.districts))
+      const swing =
+        votes.demMargin != null && president.demMargin != null ? round1(votes.demMargin - president.demMargin) : null
+      return {
+        office: 'house',
+        linesChanged,
+        seats,
+        votes,
+        prior,
+        priorVotes: { dem: prior.demVotes, rep: prior.repVotes, other: prior.otherVotes, total: prior.totalVotes },
+        president,
+        swing,
+      }
+    }
+
+    const seats = { dem: 0, rep: 0, other: 0, uncalled: 0, races: 0, noRace: 0 }
+    const votes = { dem: 0, rep: 0, other: 0, total: 0 }
+    for (const item of states) {
+      const race = whichOffice === 'senate' ? item.senate2026 : item.governor2026
+      if (!race) {
+        seats.noRace += 1
+        continue
+      }
+      seats.races += 1
+      if (!race.called) seats.uncalled += 1
+      else if (race.bucket === 'dem') seats.dem += 1
+      else if (race.bucket === 'rep') seats.rep += 1
+      else seats.other += 1
+      votes.dem += race.demVotes ?? 0
+      votes.rep += race.repVotes ?? 0
+      votes.other += race.otherVotes ?? 0
+      votes.total += race.totalVotes ?? 0
+    }
+    votes.demMargin = votes.total > 0 ? round1(((votes.dem - votes.rep) / votes.total) * 100) : null
+
+    let priorSenate = null
+    if (whichOffice === 'senate') {
+      priorSenate = { dem: 0, rep: 0, other: 0, races: 0 }
+      for (const item of states) {
+        for (const race of item.senate2024 ?? []) {
+          priorSenate.races += 1
+          if (race.bucket === 'dem') priorSenate.dem += 1
+          else if (race.bucket === 'rep') priorSenate.rep += 1
+          else priorSenate.other += 1
+        }
+      }
+    }
+
+    return { office: whichOffice, linesChanged, seats, votes, president, priorSenate }
+  }
+
+  function sumPresident(states) {
+    const byName = {}
+    let dem = 0
+    let rep = 0
+    let total = 0
+    for (const item of states) {
+      const race = item.president2024
+      if (!race) continue
+      dem += race.demVotes ?? 0
+      rep += race.repVotes ?? 0
+      total += race.totalVotes ?? 0
+      for (const candidate of race.candidates ?? []) {
+        const existing = byName[candidate.name] ?? {
+          name: candidate.name,
+          party: candidate.party,
+          bucket: candidate.bucket,
+          votes: 0,
+        }
+        existing.votes += candidate.votes ?? 0
+        byName[candidate.name] = existing
+      }
+    }
+    const candidates = Object.values(byName)
+      .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name))
+      .slice(0, 4)
+    for (const candidate of candidates) {
+      candidate.percent = total > 0 ? round1((candidate.votes / total) * 100) : null
+    }
+    return {
+      demMargin: total > 0 ? round1(((dem - rep) / total) * 100) : null,
+      winner: candidates[0]?.name ?? null,
+      candidates,
+    }
+  }
 </script>
 
-<aside class={{ open: Boolean(selection) }} aria-label="Election details">
-  {#if selection && state}
+<aside aria-label="Election details">
+  {#snippet voteBars(tally)}
+    <ul>
+      <li>
+        <div class="who">
+          <span>Democratic</span>
+          <span class="dem">{formatVotes(tally.dem)}</span>
+        </div>
+        <div class="bar" aria-hidden="true"><span class="dem" style:width={share(tally.dem, tally.total)}></span></div>
+      </li>
+      <li>
+        <div class="who">
+          <span>Republican</span>
+          <span class="rep">{formatVotes(tally.rep)}</span>
+        </div>
+        <div class="bar" aria-hidden="true"><span class="rep" style:width={share(tally.rep, tally.total)}></span></div>
+      </li>
+      {#if tally.other}
+        <li>
+          <div class="who">
+            <span>Other</span>
+            <span class="other">{formatVotes(tally.other)}</span>
+          </div>
+          <div class="bar" aria-hidden="true"><span class="other" style:width={share(tally.other, tally.total)}></span></div>
+        </li>
+      {/if}
+    </ul>
+  {/snippet}
+
+  {#if !selection}
+    {#key office}
+      <span {@attach (node) => node.closest('aside')?.scrollTo(0, 0)}></span>
+    {/key}
+    <header>
+      <p class="kicker">{nationLabel} · Nationwide</p>
+      <h2>United States</h2>
+      <p class="leader">{seatLine(nation.seats, nation.office !== 'house')}</p>
+      <p class="margin">{formatMargin(nation.votes.demMargin)}</p>
+      <p class="meta">
+        {#if nation.office === 'house'}
+          Democratic margin of House votes counted nationwide.
+        {:else}
+          Democratic margin of votes in the {nation.seats.races} states with a 2026 {nationLabel} race.
+        {/if}
+      </p>
+    </header>
+    <section>
+      <h3>2026</h3>
+      {@render voteBars(nation.votes)}
+      {#if nation.office === 'house' && nation.prior.flips}
+        <p class="note">
+          {nation.prior.flips}
+          {nation.prior.flips === 1 ? 'district' : 'districts'} changed party from the 2024 district with the same number.
+        </p>
+      {/if}
+      {#if nation.office === 'house' && nation.swing != null}
+        <p class="shift">{comparedWith(nation.swing, 'the 2024 presidential popular vote')}.</p>
+      {/if}
+      {#if nation.office === 'house' && nation.linesChanged}
+        <p class="warn">
+          {nation.linesChanged}
+          {nation.linesChanged === 1 ? 'state redrew' : 'states redrew'} district lines after 2024, so a seat change is not a swing in those states.
+        </p>
+      {/if}
+    </section>
+    <section>
+      <h3>2024</h3>
+      {#if nation.office === 'house'}
+        <p>
+          House, nationwide: {formatMargin(nation.prior.demMargin)}
+          · {nation.prior.dem} Democratic seats · {nation.prior.rep} Republican seats
+          {#if nation.prior.other}· {nation.prior.other} other{/if}
+          {#if nation.prior.uncontested}· {nation.prior.uncontested} uncontested{/if}
+        </p>
+        {@render voteBars(nation.priorVotes)}
+        {#if nation.linesChanged}
+          <p class="note">Seat counts use the 2024 district number. The vote total is every House vote.</p>
+        {/if}
+      {:else if nation.priorSenate}
+        <p>
+          Senate, states that voted in 2024: {nation.priorSenate.dem} Democratic · {nation.priorSenate.rep} Republican
+          {#if nation.priorSenate.other}· {nation.priorSenate.other} other{/if}
+          · {nation.priorSenate.races} races
+        </p>
+      {/if}
+      <p>
+        President, popular vote: {formatMargin(nation.president.demMargin)}
+        {#if nation.president.winner}· {nation.president.winner}{/if}
+      </p>
+      <ul>
+        {#each nation.president.candidates as candidate (candidate.name)}
+          <li>
+            <div class="who">
+              <span>{candidate.name}</span>
+              <span class={candidate.bucket}>{partyLabel(candidate.party)}</span>
+            </div>
+            <div class="nums">{formatVotes(candidate.votes)} · {candidate.percent}%</div>
+          </li>
+        {/each}
+      </ul>
+    </section>
+    <p class="fine">
+      Unofficial.
+      {#if election.sources?.resultsUpdatedUtc}Updated {formatWhen(election.sources.resultsUpdatedUtc)}.{/if}
+    </p>
+  {:else if state}
     {#key selection.type === 'district' ? place.id : `${selection.type}:${state.postal}`}
       <span {@attach (node) => node.closest('aside')?.scrollTo(0, 0)}></span>
     {/key}
@@ -60,7 +283,7 @@
         {#if selection.type === 'district'}
           <button type="button" onclick={onDeselect}>Deselect district</button>
         {/if}
-        <button type="button" onclick={onClose}>Close</button>
+        <button type="button" onclick={onClose}>All states</button>
       </div>
       <p class="kicker">{officeName} · {selection.type === 'house-state' ? 'Statewide' : race ? statusLabel(race.status) : 'No 2026 race'}</p>
       <h2>{selection.type === 'district' ? place.name : state.name}</h2>
@@ -335,22 +558,17 @@
 
 <style>
   aside {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(400px, 100%);
+    display: flex;
+    flex: 0 0 min(400px, 46%);
+    flex-direction: column;
+    align-self: stretch;
+    width: min(400px, 46%);
+    min-width: 0;
+    min-height: 0;
+    max-height: 100%;
     background: #fffdf8;
     border-left: 1px solid #e3d9c8;
-    box-shadow: -12px 0 32px rgba(40, 30, 10, 0.08);
-    transform: translateX(104%);
-    transition: transform 180ms ease;
     overflow: auto;
-    z-index: 2;
-  }
-
-  aside.open {
-    transform: translateX(0);
   }
 
   header,

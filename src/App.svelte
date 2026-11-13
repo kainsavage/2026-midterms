@@ -34,10 +34,14 @@
   const places = $derived(Object.values(election.states).sort((a, b) => a.name.localeCompare(b.name)))
   const districts = $derived(Object.values(election.districts).sort((a, b) => a.id.localeCompare(b.id)))
 
-  function onKey(event) {
-    if (event.key !== 'Escape' || event.target instanceof HTMLInputElement) return
+  function stepBack() {
     if (districtId) districtId = null
     else stateId = null
+  }
+
+  function onKey(event) {
+    if (event.key !== 'Escape' || event.target instanceof HTMLInputElement) return
+    stepBack()
   }
 
   function chooseOffice(next) {
@@ -137,39 +141,42 @@
   </header>
 
   <main>
-    {#if state}
-      <nav class="crumbs" aria-label="Map location">
-        <button type="button" onclick={backToNation}>All states</button>
-        {#if district}
-          <button type="button" onclick={() => (districtId = null)}>{state.name}</button>
-          <span>{district.name}</span>
-        {:else}
-          <span>{state.name}</span>
-        {/if}
-        {#if office === 'house'}
-          <span class="seats">
-            {state.houseSeats.dem} D · {state.houseSeats.rep} R
-            {#if state.houseSeats.other}· {state.houseSeats.other} other{/if}
-            {#if state.houseSeats.uncalled}· {state.houseSeats.uncalled} not called{/if}
-          </span>
-        {/if}
-        {#if state.linesChanged && office === 'house'}
-          <span class="seats">Lines differ from 2024</span>
-        {/if}
-      </nav>
-    {/if}
+    <div class="stage">
+      {#if state}
+        <nav class="crumbs" aria-label="Map location">
+          <button type="button" onclick={backToNation}>All states</button>
+          {#if district}
+            <button type="button" onclick={() => (districtId = null)}>{state.name}</button>
+            <span>{district.name}</span>
+          {:else}
+            <span>{state.name}</span>
+          {/if}
+          {#if office === 'house'}
+            <span class="seats">
+              {state.houseSeats.dem} D · {state.houseSeats.rep} R
+              {#if state.houseSeats.other}· {state.houseSeats.other} other{/if}
+              {#if state.houseSeats.uncalled}· {state.houseSeats.uncalled} not called{/if}
+            </span>
+          {/if}
+          {#if state.linesChanged && office === 'house'}
+            <span class="seats">Lines differ from 2024</span>
+          {/if}
+        </nav>
+      {/if}
 
-    <MapView
-      {office}
-      {mode}
-      {stateId}
-      {districtId}
-      {election}
-      {statesGeo}
-      onSelectState={selectState}
-      onSelectDistrict={selectDistrict}
-    />
-    <Panel {selection} onClose={closePanel} onDeselect={deselectDistrict} onSelectDistrict={selectDistrict} />
+      <MapView
+        {office}
+        {mode}
+        {stateId}
+        {districtId}
+        {election}
+        {statesGeo}
+        onSelectState={selectState}
+        onSelectDistrict={selectDistrict}
+        onStepBack={stepBack}
+      />
+    </div>
+    <Panel {selection} {office} {election} onClose={closePanel} onDeselect={deselectDistrict} onSelectDistrict={selectDistrict} />
   </main>
 
   <footer>
@@ -182,9 +189,11 @@
 
 <style>
   .app {
-    min-height: 100vh;
+    height: 100%;
+    min-height: 0;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
+    overflow: hidden;
     background: #f3efe6;
     color: #1b1914;
   }
@@ -271,8 +280,20 @@
   }
 
   main {
-    position: relative;
+    display: flex;
     min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .stage {
+    position: relative;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .crumbs {
@@ -280,6 +301,7 @@
     z-index: 1;
     top: 12px;
     left: 16px;
+    max-width: calc(100% - 32px);
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
