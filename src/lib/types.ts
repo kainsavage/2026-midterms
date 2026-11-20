@@ -54,6 +54,7 @@ export interface StatewideRace {
 	url: string | null;
 	candidates: Candidate[];
 	swingVsPresident: number | null;
+	flip: boolean;
 }
 
 export interface District {
@@ -130,6 +131,7 @@ export interface ElectionSources {
 
 export interface ElectionData {
 	sources: ElectionSources;
+	senate: SeatCount;
 	states: Record<string, StateRecord>;
 	districts: Record<string, District>;
 }

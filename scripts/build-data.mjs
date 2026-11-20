@@ -155,6 +155,84 @@ const presidentByDistrict = buildPresidentByDistrict(
 	await cachedText('president-by-district-2024.csv', SOURCES.presidentByDistrict)
 );
 
+const heldBefore = {
+	governor: {
+		AK: 'rep',
+		AL: 'rep',
+		AR: 'rep',
+		AZ: 'dem',
+		CA: 'dem',
+		CO: 'dem',
+		CT: 'dem',
+		FL: 'rep',
+		GA: 'rep',
+		HI: 'dem',
+		IA: 'rep',
+		ID: 'rep',
+		IL: 'dem',
+		KS: 'dem',
+		MA: 'dem',
+		MD: 'dem',
+		ME: 'dem',
+		MI: 'dem',
+		MN: 'dem',
+		NE: 'rep',
+		NH: 'rep',
+		NM: 'dem',
+		NV: 'rep',
+		NY: 'dem',
+		OH: 'rep',
+		OK: 'rep',
+		OR: 'dem',
+		PA: 'dem',
+		RI: 'dem',
+		SC: 'rep',
+		SD: 'rep',
+		TN: 'rep',
+		TX: 'rep',
+		VT: 'rep',
+		WI: 'dem',
+		WY: 'rep'
+	},
+	senate: {
+		AK: 'rep',
+		AL: 'rep',
+		AR: 'rep',
+		CO: 'dem',
+		DE: 'dem',
+		FL: 'rep',
+		GA: 'dem',
+		IA: 'rep',
+		ID: 'rep',
+		IL: 'dem',
+		KS: 'rep',
+		KY: 'rep',
+		LA: 'rep',
+		MA: 'dem',
+		ME: 'rep',
+		MI: 'dem',
+		MN: 'dem',
+		MS: 'rep',
+		MT: 'rep',
+		NC: 'rep',
+		NE: 'rep',
+		NH: 'dem',
+		NJ: 'dem',
+		NM: 'dem',
+		OH: 'rep',
+		OK: 'rep',
+		OR: 'dem',
+		RI: 'dem',
+		SC: 'rep',
+		SD: 'rep',
+		TN: 'rep',
+		TX: 'rep',
+		VA: 'dem',
+		WV: 'rep',
+		WY: 'rep'
+	}
+};
+
 const districts = {};
 const states = {};
 const statuses = new Set();
@@ -306,6 +384,7 @@ const election = {
 		historySource:
 			'MIT Election Data and Science Lab, U.S. House 1976–2024, U.S. Senate statewide 1976–2024, and U.S. President statewide 1976–2024 (CC0), via electiondata.dev and Harvard Dataverse. Presidential vote by the congressional districts used in 2026: The Downballot.'
 	},
+	senate: controlSeats('senate-control', 100),
 	states,
 	districts
 };
@@ -352,8 +431,36 @@ console.log(
 );
 const uncalled = Object.values(districts).find((d) => !d.called);
 console.log(`Uncalled example`, uncalled?.id, uncalled?.status, uncalled?.leader);
+console.log(`Senate`, election.senate);
+console.log(`Senate flips`, flipTotals('senate'));
+console.log(`Governor flips`, flipTotals('governor'));
 console.log(`Results updated`, latestUpdate);
 console.log(`District vintage`, districtVintage);
+
+function flipTotals(office) {
+	const counts = { dem: 0, rep: 0 };
+	for (const state of Object.values(states)) {
+		const race = office === 'senate' ? state.senate2026 : state.governor2026;
+		if (!race?.flip) continue;
+		if (race.bucket === 'dem' || race.bucket === 'rep') counts[race.bucket] += 1;
+	}
+	return counts;
+}
+
+function controlSeats(office, size) {
+	const seats = { dem: 0, rep: 0, other: 0, uncalled: 0 };
+	for (const row of results) {
+		if (row.office !== office) continue;
+		const count = num(row.seats) ?? 0;
+		const group = bucket(row.party);
+		if (group === 'dem') seats.dem += count;
+		else if (group === 'rep') seats.rep += count;
+		else seats.other += count;
+	}
+	const counted = seats.dem + seats.rep + seats.other;
+	if (counted < size) seats.uncalled = size - counted;
+	return seats;
+}
 
 function statewideRace(office, postal, president) {
 	const rows = results.filter((row) => row.office === office && row.state === postal);
@@ -378,13 +485,16 @@ function statewideRace(office, postal, president) {
 		called && demMargin != null && president?.demMargin != null
 			? round1(demMargin - president.demMargin)
 			: null;
+	const winnerBucket = bucket(party);
+	const priorBucket = heldBefore[office]?.[postal] ?? null;
 	return {
 		office,
 		status: called ? 'called' : 'counting',
 		called,
 		leader,
 		party,
-		bucket: bucket(party),
+		bucket: winnerBucket,
+		flip: Boolean(called && priorBucket && winnerBucket !== priorBucket),
 		...tally,
 		demMargin,
 		percentReporting: num(rows[0].percent_reporting),

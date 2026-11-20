@@ -127,6 +127,26 @@
 		return parts.join(' · ');
 	}
 
+	function tallyFlips(races: { flip: boolean; called: boolean; bucket: string }[]) {
+		const counts = { dem: 0, rep: 0 };
+		for (const race of races) {
+			if (!race.flip || !race.called) continue;
+			if (race.bucket === 'dem') counts.dem += 1;
+			else if (race.bucket === 'rep') counts.rep += 1;
+		}
+		return counts;
+	}
+
+	function officeFlips(which: Office) {
+		if (which === 'house') return tallyFlips(Object.values(election.districts));
+		const races = [];
+		for (const item of Object.values(election.states)) {
+			const race = which === 'senate' ? item.senate2026 : item.governor2026;
+			if (race) races.push(race);
+		}
+		return tallyFlips(races);
+	}
+
 	function share(part: number, total: number) {
 		if (!total) return '0%';
 		return `${Math.round((part / total) * 1000) / 10}%`;
@@ -317,6 +337,17 @@
 </script>
 
 <aside aria-label="Election details">
+	{#snippet flipTally(counts: { dem: number; rep: number })}
+		<span
+			class="flip-counts"
+			aria-label="{counts.dem} flipped to Democrats, {counts.rep} flipped to Republicans"
+		>
+			<span class="dem" aria-hidden="true">{counts.dem}</span>
+			<span class="rep" aria-hidden="true">{counts.rep}</span>
+			<span class="name" aria-hidden="true">flips</span>
+		</span>
+	{/snippet}
+
 	{#snippet voteBars(tally: { dem: number; rep: number; other: number; total: number })}
 		<ul>
 			<li>
@@ -358,11 +389,21 @@
 		<header>
 			<p class="kicker">{nationLabel} · Nationwide</p>
 			<h2>United States</h2>
-			<p class="leader">{seatLine(nation.seats, nation.office !== 'house')}</p>
-			<p class="margin">{formatMargin(nation.votes.demMargin)}</p>
+			<p class="leader">
+				{nation.office === 'senate'
+					? seatLine(election.senate, false)
+					: seatLine(nation.seats, nation.office !== 'house')}
+			</p>
+			<p class="margin">
+				<span>{formatMargin(nation.votes.demMargin)}</span>
+				{@render flipTally(officeFlips(office))}
+			</p>
 			<p class="meta">
 				{#if nation.office === 'house'}
 					Democratic margin of House votes counted nationwide.
+				{:else if nation.office === 'senate'}
+					All 100 seats, including those not on the ballot in 2026. Democratic margin of votes in
+					the {nation.seats.races} states with a 2026 Senate race.
 				{:else}
 					Democratic margin of votes in the {nation.seats.races} states with a 2026
 					{nationLabel} race.
@@ -372,6 +413,9 @@
 		<section>
 			<h3>2026</h3>
 			{@render voteBars(nation.votes)}
+			{#if nation.office === 'senate'}
+				<p class="note">{seatLine(nation.seats, false)} elected this year.</p>
+			{/if}
 			{#if nation.office === 'house' && nation.prior.flips}
 				<p class="note">
 					{nation.prior.flips}
@@ -464,7 +508,12 @@
 					<span class={race.bucket}>{partyLabel(race.party)}</span>
 				</p>
 				<p class="margin">
-					{race.called ? formatMargin(race.demMargin) : `${formatMargin(race.demMargin)} so far`}
+					<span>
+						{race.called ? formatMargin(race.demMargin) : `${formatMargin(race.demMargin)} so far`}
+					</span>
+					{#if selection.type === 'state'}
+						{@render flipTally(tallyFlips([race]))}
+					{/if}
 				</p>
 				{#if place && !place.called && projectedFlip}
 					<p class="flag">Would be a party flip with these results</p>
@@ -485,7 +534,12 @@
 					{#if state.houseSeats.other}· {state.houseSeats.other} other{/if}
 					{#if state.houseSeats.uncalled}· {state.houseSeats.uncalled} not called{/if}
 				</p>
-				<p class="margin">{formatMargin(state.houseVotes.demMargin)}</p>
+				<p class="margin">
+					<span>{formatMargin(state.houseVotes.demMargin)}</span>
+					{#if selection.type === 'house-state'}
+						{@render flipTally(tallyFlips(selection.districts))}
+					{/if}
+				</p>
 				<p class="meta">
 					Democratic margin of House votes counted in {state.name}.
 				</p>
@@ -886,8 +940,26 @@
 	}
 
 	.margin {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 16px;
 		font-family: Palatino, 'Palatino Linotype', Georgia, serif;
 		font-size: 28px;
+	}
+
+	.flip-counts {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		font-size: 20px;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.flip-counts .name {
+		font-family: 'Segoe UI', Candara, sans-serif;
+		font-size: 13px;
+		color: #5e584e;
 	}
 
 	.flag,
